@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Стрелялка 2/title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #222;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #ui {
+      margin-top: 10px;
+      text-align: center;
+    }
+    canvas {
+      border: 2px solid #555;
+      box-shadow: 0 0 15px rgba(0,0,0,0.5);
+      background: #111;
+    }
+  </style>
+</head>
+<body>
+  <h1>Стрелялка 2</h1>
+  <div id="ui">Счёт: <span id="score">0</span></div>
+  <canvas id="game" width="600" height="400"></canvas>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+
+    // Настройки игры
+    const tileSize = 20; // размер клетки
+    const cols = Math.floor(canvas.width / tileSize);
+    const rows = Math.floor(canvas.height / tileSize);
+
+    let score = 0;
+
+    // Игрок
+    const player = {
+      x: 1,
+      y: 1,
+      speed: 3
+    };
+
+    // Монетки (цели)
+    let coins = [];
+    function spawnCoin() {
+      let x, y;
+      do {
+        x = Math.floor(Math.random() * cols);
+        y = Math.floor(Math.random() * rows);
+      } while (x === player.x && y === player.y);
+      coins.push({ x, y });
+    }
+
+    // Враги
+    let enemies = [];
+    function spawnEnemy() {
+      let x, y;
+      do {
+        x = Math.floor(Math.random() * cols);
+        y = Math.floor(Math.random() * rows);
+      } while (x === player.x && y === player.y);
+      enemies.push({ x, y, speed: 2 + Math.random() * 2 }); // случайная скорость
+    }
+
+    // Инициализация
+    for (let i = 0; i < 8; i++) spawnCoin();
+    for (let i = 0; i < 4; i++) spawnEnemy();
+
+    // Управление
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    function update() {
+      // Движение игрока
+      if (keys['ArrowUp']) player.y -= player.speed;
+      if (keys['ArrowDown']) player.y += player.speed;
+      if (keys['ArrowLeft']) player.x -= player.speed;
+      if (keys['ArrowRight']) player.x += player.speed;
+
+      // Ограничение по границам
+      player.x = Math.max(0, Math.min(cols - 1, player.x));
+      player.y = Math.max(0, Math.min(rows - 1, player.y));
+
+      // Сбор монеток
+      for (let i = coins.length - 1; i >= 0; i--) {
+        const c = coins[i];
+        if (Math.abs(c.x - player.x) < 0.8 && Math.abs(c.y - player.y) < 0.8) {
+          coins.splice(i, 1);
+          score++;
+          scoreEl.innerText = score;
+          spawnCoin();
+        }
+      }
+
+      // Враги двигаются к игроку
+      enemies.forEach(e => {
+        const dx = player.x - e.x;
+        const dy = player.y - e.y;
+        const len = Math.sqrt(dx*dx + dy*dy);
+        if (len > 0) {
+          e.x += (dx / len) * e.speed;
+          e.y += (dy / len) * e.speed;
+        }
+      });
+
+      // Столкновение с врагом
+      for (const e of enemies) {
+        const dx = player.x - e.x;
+        const dy = player.y - e.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 0.9) {
+          // Смерть игрока — сброс
+          player.x = 1;
+          player.y = 1;
+          score = 0;
+          scoreEl.innerText = score;
+          coins = [];
+          enemies = [];
+          for (let i = 0; i < 8; i++) spawnCoin();
+          for (let i = 0; i < 4; i++) spawnEnemy();
+          break;
+        }
+      }
+    }
+
+    function draw() {
+      // Очистка
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Сетка (опционально, для наглядности)
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= canvas.width; x += tileSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= canvas.height; y += tileSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      // Рисуем монетки
+      ctx.fillStyle = '#0f0';
+      coins.forEach(c => {
+        ctx.fillRect(c.x * tileSize + 4, c.y * tileSize + 4, tileSize - 8, tileSize - 8);
+      });
+
+      // Рисуем врагов
+      ctx.fillStyle = 'Blue';
+      enemies.forEach(e => {
+        // округляем для отрисовки по клеткам
+        const ex = Math.floor(e.x);
+        const ey = Math.floor(e.y);
+        ctx.fillRect(ex * tileSize + 2, ey * tileSize + 2, tileSize - 4, tileSize - 4);
+      });
+
+      // Игрок
+      ctx.fillStyle = 'Red';
+      const px = Math.floor(player.x);
+      const py = Math.floor(player.y);
+      ctx.fillRect(px * tileSize + 2, py * tileSize + 2, tileSize - 4, tileSize - 4);
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    loop();
+  </script>
+</body>
+</html>
