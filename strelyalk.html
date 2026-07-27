@@ -112,7 +112,7 @@
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Игрок
-      ctx.fillStyle = '#4af';
+      ctx.fillStyle = 'Red';
       ctx.fillRect(player.x, player.y, player.w, player.h);
 
       // Пули
@@ -120,7 +120,7 @@
       bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
 
       // Враги
-      ctx.fillStyle = '#f44';
+      ctx.fillStyle = 'Blue;
       enemies.forEach(e => ctx.fillRect(e.x, e.y, e.w, e.h));
     }
 
