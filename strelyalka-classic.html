@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Стрелялка Classic</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #111; font-family: Arial, sans-serif; touch-action: none; }
+    canvas { display: block; }
+
+    #hud {
+      position: fixed;
+      top: 10px; left: 10px; right: 10px;
+      display: flex; justify-content: space-between;
+      color: #fff; font-size: 18px; pointer-events: none;
+      text-shadow: 1px 1px 2px #000; user-select: none; z-index: 10;
+    }
+    #hud span { font-weight: bold; }
+
+    #controls {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      display: flex; justify-content: space-between;
+      padding: 16px 20px; z-index: 10;
+    }
+    .pad { display: flex; gap: 12px; }
+    .ctrl-btn {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.3);
+      background: rgba(255,255,255,0.12);
+      color: #fff; font-size: 26px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; user-select: none;
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      transition: background 0.1s;
+    }
+    .ctrl-btn:active { background: rgba(255,255,255,0.35); }
+
+    #shoot-btn {
+      width: 80px; height: 80px;
+      font-size: 30px;
+      background: rgba(255,80,80,0.25);
+      border-color: rgba(255,80,80,0.5);
+    }
+    #shoot-btn:active { background: rgba(255,80,80,0.5); }
+
+    #overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.8);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: #fff; z-index: 20; text-align: center;
+    }
+    #overlay h1 { font-size: 36px; margin-bottom: 8px; }
+    #overlay p { font-size: 18px; margin-bottom: 24px; opacity: 0.8; }
+    #overlay button {
+      padding: 14px 40px; font-size: 20px;
+      border: 2px solid #4a9; border-radius: 8px;
+      background: #1a6; color: #fff; cursor: pointer;
+    }
+    #overlay button:active { background: #0c5; }
+
+    @media (min-width: 768px) {
+      .ctrl-btn { width: 56px; height: 56px; font-size: 22px; }
+      #shoot-btn { width: 68px; height: 68px; font-size: 26px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="hud">
+    <div>Очки: <span id="score">0</span></div>
+    <div>Жизни: <span id="lives">❤❤❤</span></div>
+  </div>
+
+  <canvas id="game"></canvas>
+
+  <div id="controls">
+    <div class="pad">
+      <div class="ctrl-btn" id="btn-left">←</div>
+      <div class="ctrl-btn" id="btn-right">→</div>
+    </div>
+    <div class="ctrl-btn" id="shoot-btn">🔥</div>
+  </div>
+
+  <div id="overlay">
+    <h1>Стрелялка Classic</h1>
+    <p>Стрелки / WASD — движение, Пробел — огонь<br>На телефоне — кнопки внизу</p>
+    <button id="start-btn">Играть</button>
+  </div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const livesEl = document.getElementById('lives');
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('start-btn');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// === Состояние игры ===
+let player, bullets, enemies, particles;
+let spawnTimer, running, score, lives;
+
+function init() {
+  player = {
+    x: W / 2 - 25, y: H - 100,
+    w: 50, h: 40,
+    speed: 7, dx: 0,
+    invuln: 0
+  };
+  bullets = [];
+  enemies = [];
+  particles = [];
+  spawnTimer = 0;
+  score = 0;
+  lives = 3;
+  running = true;
+  updateHud();
+}
+
+function updateHud() {
+  scoreEl.textContent = score;
+  livesEl.textContent = '❤'.repeat(Math.max(0, lives)) || '—';
+}
+
+// === Управление ===
+const keys = { left: false, right: false, shoot: false };
+let autoShoot = false;
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = true;
+  if (e.key === 'ArrowRight' || e.key === 'd') keys.right = true;
+  if (e.key === ' ') { e.preventDefault(); shoot(); }
+});
+window.addEventListener('keyup', e => {
+  if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = false;
+  if (e.key === 'ArrowRight' || e.key === 'd') keys.right = false;
+});
+
+// Кнопки на экране
+function bindBtn(id, onDown, onUp) {
+  const el = document.getElementById(id);
+  const down = e => { e.preventDefault(); onDown(); };
+  const up = e => { e.preventDefault(); if (onUp) onUp(); };
+  el.addEventListener('touchstart', down, { passive: false });
+  el.addEventListener('mousedown', down);
+  el.addEventListener('touchend', up, { passive: false });
+  el.addEventListener('touchcancel', up, { passive: false });
+  el.addEventListener('mouseup', up);
+  el.addEventListener('mouseleave', up);
+}
+
+bindBtn('btn-left', () => keys.left = true, () => keys.left = false);
+bindBtn('btn-right', () => keys.right = true, () => keys.right = false);
+bindBtn('shoot-btn', () => shoot());
+
+// Тап по канрвасу — стрельба (доп. мобильное управление)
+canvas.addEventListener('touchstart', e => { e.preventDefault(); shoot(); }, { passive: false });
+
+// === Стрельба ===
+let shootCd = 0;
+function shoot() {
+  if (!running || shootCd > 0) return;
+  bullets.push({ x: player.x + player.w / 2 - 3, y: player.y, w: 6, h: 14, speed: 12 });
+  shootCd = 8;
+}
+
+// === Враги ===
+function spawnEnemy() {
+  const size = 35 + Math.random() * 15;
+  enemies.push({
+    x: Math.random() * (W - size),
+    y: -size,
+    w: size, h: size,
+    vx: 0, vy: 1.5 + Math.random() * 1.5,
+    chaseSpeed: 1 + Math.random() * 1.5,
+    hp: 1
+  });
+}
+
+// === Частицы (взрыв) ===
+function explode(x, y, color) {
+  for (let i = 0; i < 12; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 1 + Math.random() * 4;
+    particles.push({
+      x, y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s,
+      life: 30,
+      color
+    });
+  }
+}
+
+// === Столкновения ===
+function hit(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x &&
+         a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// === Игровой цикл ===
+function update() {
+  if (!running) return;
+
+  // Движение игрока
+  player.dx = 0;
+  if (keys.left) player.dx -= player.speed;
+  if (keys.right) player.dx += player.speed;
+  player.x += player.dx;
+  player.x = Math.max(0, Math.min(W - player.w, player.x));
+
+  if (shootCd > 0) shootCd--;
+  if (player.invuln > 0) player.invuln--;
+
+  // Пули
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    bullets[i].y -= bullets[i].speed;
+    if (bullets[i].y < -20) bullets.splice(i, 1);
+  }
+
+  // Спавн врагов — чаще с ростом счёта
+  spawnTimer++;
+  const interval = Math.max(25, 70 - Math.floor(score / 100) * 5);
+  if (spawnTimer >= interval) {
+    spawnTimer = 0;
+    spawnEnemy();
+  }
+
+  // Враги: преследование + столкновения
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+
+    // Преследование по X
+    const targetX = player.x + player.w / 2 - e.w / 2;
+    if (e.x < targetX) e.x += Math.min(e.chaseSpeed, targetX - e.x);
+    else if (e.x > targetX) e.x -= Math.min(e.chaseSpeed, e.x - targetX);
+    e.y += e.vy;
+
+    // Столкновение с пулями
+    let dead = false;
+    for (let j = bullets.length - 1; j >= 0; j--) {
+      if (hit(bullets[j], e)) {
+        bullets.splice(j, 1);
+        e.hp--;
+        if (e.hp <= 0) {
+          explode(e.x + e.w / 2, e.y + e.h / 2, '#4af');
+          enemies.splice(i, 1);
+          score += 10;
+          updateHud();
+          dead = true;
+        }
+        break;
+      }
+    }
+    if (dead) continue;
+
+    // Столкновение с игроком
+    if (player.invuln === 0 && hit(player, e)) {
+      lives--;
+      player.invuln = 60;
+      explode(e.x + e.w / 2, e.y + e.h / 2, '#f44');
+      enemies.splice(i, 1);
+      updateHud();
+      if (lives <= 0) {
+        running = false;
+        showGameOver();
+      }
+      continue;
+    }
+
+    // Ушёл за низ
+    if (e.y > H) enemies.splice(i, 1);
+  }
+
+  // Частицы
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.15;
+    p.life--;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function draw() {
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, W, H);
+
+  // Звёзды-фон
+  ctx.fillStyle = '#222';
+  for (let i = 0; i < 40; i++) {
+    const sx = (i * 137) % W;
+    const sy = (i * 97 + (Date.now() / 30)) % H;
+    ctx.fillRect(sx, sy, 2, 2);
+  }
+
+  // Игрок (мигает при неуязвимости)
+  if (player.invuln === 0 || Math.floor(player.invuln / 5) % 2 === 0) {
+    ctx.fillStyle = '#0f0';
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+    // «пушка»
+    ctx.fillStyle = '#0a0';
+    ctx.fillRect(player.x + 20, player.y - 10, 10, 10);
+  }
+
+  // Пули
+  ctx.fillStyle = '#ff0';
+  bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
+
+  // Враги
+  enemies.forEach(e => {
+    ctx.fillStyle = '#e44';
+    ctx.fillRect(e.x, e.y, e.w, e.h);
+    // «глаза» — для атмосферы преследования
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(e.x + 7, e.y + 8, 6, 6);
+    ctx.fillRect(e.x + e.w - 13, e.y + 8, 6, 6);
+  });
+
+  // Частицы
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life / 30;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
+  });
+  ctx.globalAlpha = 1;
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// === Game Over ===
+function showGameOver() {
+  overlay.innerHTML = `
+    <h1>Игра окончена</h1>
+    <p>Ваш счёт: ${score}</p>
+    <button id="restart-btn">Заново</button>
+  `;
+  overlay.style.display = 'flex';
+  document.getElementById('restart-btn').addEventListener('click', () => {
+    overlay.style.display = 'none';
+    init();
+  });
+}
+
+// === Старт ===
+startBtn.addEventListener('click', () => {
+  overlay.style.display = 'none';
+  init();
+});
+
+loop();
+</script>
+</body>
+</html>
