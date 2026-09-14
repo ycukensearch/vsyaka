@@ -48,13 +48,13 @@
 
     #overlay {
       position: fixed; inset: 0;
-      background: rgba(0,0,0,0.8);
+      background: rgba(0,0,0,0.85);
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
       color: #fff; z-index: 20; text-align: center;
     }
     #overlay h1 { font-size: 36px; margin-bottom: 8px; }
-    #overlay p { font-size: 18px; margin-bottom: 24px; opacity: 0.8; }
+    #overlay p { font-size: 18px; margin-bottom: 24px; opacity: 0.8; line-height: 1.5; }
     #overlay button {
       padding: 14px 40px; font-size: 20px;
       border: 2px solid #4a9; border-radius: 8px;
@@ -108,8 +108,13 @@ resize();
 window.addEventListener('resize', resize);
 
 // === Состояние игры ===
-let player, bullets, enemies, particles;
-let spawnTimer, running, score, lives;
+let player = null, bullets = [], enemies = [], particles = [];
+let spawnTimer = 0, running = false, score = 0, lives = 3;
+let shootCd = 0;
+let stars = [];
+for (let i = 0; i < 50; i++) {
+  stars.push({ x: Math.random(), y: Math.random(), s: 1 + Math.random() * 2 });
+}
 
 function init() {
   player = {
@@ -124,6 +129,7 @@ function init() {
   spawnTimer = 0;
   score = 0;
   lives = 3;
+  shootCd = 0;
   running = true;
   updateHud();
 }
@@ -134,24 +140,22 @@ function updateHud() {
 }
 
 // === Управление ===
-const keys = { left: false, right: false, shoot: false };
-let autoShoot = false;
+const keys = { left: false, right: false };
 
 window.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = true;
   if (e.key === 'ArrowRight' || e.key === 'd') keys.right = true;
-  if (e.key === ' ') { e.preventDefault(); shoot(); }
+  if (e.key === ' ') { e.preventDefault(); if (running) shoot(); }
 });
 window.addEventListener('keyup', e => {
   if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = false;
   if (e.key === 'ArrowRight' || e.key === 'd') keys.right = false;
 });
 
-// Кнопки на экране
 function bindBtn(id, onDown, onUp) {
   const el = document.getElementById(id);
   const down = e => { e.preventDefault(); onDown(); };
-  const up = e => { e.preventDefault(); if (onUp) onUp(); };
+  const up = e => { if (e) e.preventDefault(); if (onUp) onUp(); };
   el.addEventListener('touchstart', down, { passive: false });
   el.addEventListener('mousedown', down);
   el.addEventListener('touchend', up, { passive: false });
@@ -162,13 +166,11 @@ function bindBtn(id, onDown, onUp) {
 
 bindBtn('btn-left', () => keys.left = true, () => keys.left = false);
 bindBtn('btn-right', () => keys.right = true, () => keys.right = false);
-bindBtn('shoot-btn', () => shoot());
+bindBtn('shoot-btn', () => { if (running) shoot(); });
 
-// Тап по канрвасу — стрельба (доп. мобильное управление)
-canvas.addEventListener('touchstart', e => { e.preventDefault(); shoot(); }, { passive: false });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); if (running) shoot(); }, { passive: false });
 
 // === Стрельба ===
-let shootCd = 0;
 function shoot() {
   if (!running || shootCd > 0) return;
   bullets.push({ x: player.x + player.w / 2 - 3, y: player.y, w: 6, h: 14, speed: 12 });
@@ -182,7 +184,7 @@ function spawnEnemy() {
     x: Math.random() * (W - size),
     y: -size,
     w: size, h: size,
-    vx: 0, vy: 1.5 + Math.random() * 1.5,
+    vy: 1.5 + Math.random() * 1.5,
     chaseSpeed: 1 + Math.random() * 1.5,
     hp: 1
   });
@@ -198,7 +200,7 @@ function explode(x, y, color) {
       vx: Math.cos(a) * s,
       vy: Math.sin(a) * s,
       life: 30,
-      color
+      color: color
     });
   }
 }
@@ -211,9 +213,8 @@ function hit(a, b) {
 
 // === Игровой цикл ===
 function update() {
-  if (!running) return;
+  if (!running || !player) return;
 
-  // Движение игрока
   player.dx = 0;
   if (keys.left) player.dx -= player.speed;
   if (keys.right) player.dx += player.speed;
@@ -223,13 +224,11 @@ function update() {
   if (shootCd > 0) shootCd--;
   if (player.invuln > 0) player.invuln--;
 
-  // Пули
   for (let i = bullets.length - 1; i >= 0; i--) {
     bullets[i].y -= bullets[i].speed;
     if (bullets[i].y < -20) bullets.splice(i, 1);
   }
 
-  // Спавн врагов — чаще с ростом счёта
   spawnTimer++;
   const interval = Math.max(25, 70 - Math.floor(score / 100) * 5);
   if (spawnTimer >= interval) {
@@ -237,17 +236,13 @@ function update() {
     spawnEnemy();
   }
 
-  // Враги: преследование + столкновения
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
-
-    // Преследование по X
     const targetX = player.x + player.w / 2 - e.w / 2;
     if (e.x < targetX) e.x += Math.min(e.chaseSpeed, targetX - e.x);
     else if (e.x > targetX) e.x -= Math.min(e.chaseSpeed, e.x - targetX);
     e.y += e.vy;
 
-    // Столкновение с пулями
     let dead = false;
     for (let j = bullets.length - 1; j >= 0; j--) {
       if (hit(bullets[j], e)) {
@@ -265,7 +260,6 @@ function update() {
     }
     if (dead) continue;
 
-    // Столкновение с игроком
     if (player.invuln === 0 && hit(player, e)) {
       lives--;
       player.invuln = 60;
@@ -279,11 +273,9 @@ function update() {
       continue;
     }
 
-    // Ушёл за низ
     if (e.y > H) enemies.splice(i, 1);
   }
 
-  // Частицы
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.x += p.vx;
@@ -298,43 +290,53 @@ function draw() {
   ctx.fillStyle = '#111';
   ctx.fillRect(0, 0, W, H);
 
-  // Звёзды-фон
-  ctx.fillStyle = '#222';
-  for (let i = 0; i < 40; i++) {
-    const sx = (i * 137) % W;
-    const sy = (i * 97 + (Date.now() / 30)) % H;
-    ctx.fillRect(sx, sy, 2, 2);
+  // Звёзды
+  ctx.fillStyle = '#333';
+  const t = Date.now() / 30;
+  for (let i = 0; i < stars.length; i++) {
+    const s = stars[i];
+    const sy = (s.y * H + t) % H;
+    ctx.fillRect(s.x * W, sy, s.s, s.s);
   }
 
-  // Игрок (мигает при неуязвимости)
+  if (!player) return; // до старта — только звёздный фон
+
+  // Игрок (зелёный корабль с пушкой и кабиной)
   if (player.invuln === 0 || Math.floor(player.invuln / 5) % 2 === 0) {
     ctx.fillStyle = '#0f0';
     ctx.fillRect(player.x, player.y, player.w, player.h);
-    // «пушка»
     ctx.fillStyle = '#0a0';
     ctx.fillRect(player.x + 20, player.y - 10, 10, 10);
+    ctx.fillStyle = '#0f8';
+    ctx.fillRect(player.x + 15, player.y + 8, 20, 14);
   }
 
-  // Пули
+  // Пули (жёлтые)
   ctx.fillStyle = '#ff0';
-  bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
+  for (let i = 0; i < bullets.length; i++) {
+    ctx.fillRect(bullets[i].x, bullets[i].y, bullets[i].w, bullets[i].h);
+  }
 
-  // Враги
-  enemies.forEach(e => {
+  // Враги (красные с глазами)
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
     ctx.fillStyle = '#e44';
     ctx.fillRect(e.x, e.y, e.w, e.h);
-    // «глаза» — для атмосферы преследования
     ctx.fillStyle = '#fff';
     ctx.fillRect(e.x + 7, e.y + 8, 6, 6);
     ctx.fillRect(e.x + e.w - 13, e.y + 8, 6, 6);
-  });
+    ctx.fillStyle = '#000';
+    ctx.fillRect(e.x + 9, e.y + 10, 3, 3);
+    ctx.fillRect(e.x + e.w - 11, e.y + 10, 3, 3);
+  }
 
-  // Частицы
-  particles.forEach(p => {
+  // Частицы взрывов
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
     ctx.globalAlpha = p.life / 30;
     ctx.fillStyle = p.color;
     ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
-  });
+  }
   ctx.globalAlpha = 1;
 }
 
@@ -346,25 +348,25 @@ function loop() {
 
 // === Game Over ===
 function showGameOver() {
-  overlay.innerHTML = `
-    <h1>Игра окончена</h1>
-    <p>Ваш счёт: ${score}</p>
-    <button id="restart-btn">Заново</button>
-  `;
+  overlay.innerHTML = '<h1>Игра окончена</h1>' +
+    '<p>Ваш счёт: ' + score + '</p>' +
+    '<button id="restart-btn">Заново</button>';
   overlay.style.display = 'flex';
-  document.getElementById('restart-btn').addEventListener('click', () => {
+  document.getElementById('restart-btn').addEventListener('click', function() {
     overlay.style.display = 'none';
     init();
   });
 }
 
 // === Старт ===
-startBtn.addEventListener('click', () => {
+startBtn.addEventListener('click', function() {
   overlay.style.display = 'none';
   init();
 });
 
+// Цикл запускается сразу и не падает: до старта draw() рисует только звёзды
 loop();
 </script>
 </body>
 </html>
+
